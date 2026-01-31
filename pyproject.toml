@@ -1,0 +1,35 @@
+[project]
+name = "bin-picking"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "tobihoernchen",email = "wegmanntobias@web.de"}
+]
+readme = "README.md"
+include = [
+    { path = "bin_picking" },
+]
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "torch (==2.9.0)",
+    "ipykernel (>=7.1.0,<8.0.0)",
+    "stable-baselines3[extra] (>=2.7.1,<3.0.0)",
+    "mujoco (>=3.4.0,<4.0.0)",
+    "trimesh (>=4.11.0,<5.0.0)",
+    "gymnasium-robotics (>=1.4.2,<2.0.0)",
+    "vhacdx (>=0.0.10,<0.0.11)",
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.source]]
+name = "torch"
+url = "https://download.pytorch.org/whl/cu126"
+priority = "explicit"
+
+
+[tool.poetry.dependencies]
+torch = {source = "torch"}
