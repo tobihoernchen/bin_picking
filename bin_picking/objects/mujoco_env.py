@@ -7,9 +7,10 @@ import mujoco.viewer
 import time
 from bin_picking.objects.objects import XmlObject, XmlObjectCollection
 from bin_picking.objects.stl_objects import StlBody
+from scipy.spatial.transform import Rotation
 
 if TYPE_CHECKING:
-    from bin_picking.robots.robot import MujocoMocapActor
+    from bin_picking.robots.robot import PTPMocapActor
 
 
 class MujocoEnv(XmlObject):
@@ -18,7 +19,7 @@ class MujocoEnv(XmlObject):
         self.m: None | mujoco.MjModel = None
         self.d: None | mujoco.MjData = None
         self.worldbody = XmlObject("worldbody")
-        self.components_active_at_runtime: list["MujocoMocapActor"] = []
+        self.components_active_at_runtime: list["PTPMocapActor"] = []
         # Add Floor
         self.worldbody.append(
             ET.Element(
@@ -35,10 +36,10 @@ class MujocoEnv(XmlObject):
         for obj in objects:
             self.worldbody.append(obj)
 
-    def append_active_component(self, component: "MujocoMocapActor"):
+    def append_active_component(self, component: "PTPMocapActor"):
         self.components_active_at_runtime.append(component)
         component.initialize(self)
-        self.append_object_collection(component)
+        self.append_object_collection(component.collection)
 
     def xml_spec(self) -> str:
         tree = ET.fromstring(ET.tostring(self, encoding="unicode"))
@@ -82,7 +83,13 @@ class MujocoEnv(XmlObject):
 
     def step(self, m, d):
         for component in self.components_active_at_runtime:
-            component.update_simulation(self)
+            positions = component.get_link_positions()
+
+            for link_name, (pos, euler) in positions.items():
+                i_mocap = m.body(link_name).mocapid
+                rot = Rotation.from_euler("xyz", euler, degrees=True)
+                d.mocap_quat[i_mocap] = rot.as_quat()
+                d.mocap_pos[i_mocap] = pos
         mujoco.mj_step(m, d)
 
     def run_with_passive_viewer(self, duration_seconds: float = 30.0):
