@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 import numpy as np
 import trimesh
@@ -6,7 +7,9 @@ import mujoco.viewer
 import time
 from bin_picking.objects.objects import XmlObject, XmlObjectCollection
 from bin_picking.objects.stl_objects import StlBody
-from bin_picking.robots.robot import MujocoMocapActor
+
+if TYPE_CHECKING:
+    from bin_picking.robots.robot import MujocoMocapActor
 
 
 class MujocoEnv(XmlObject):
