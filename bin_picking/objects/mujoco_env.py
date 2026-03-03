@@ -7,7 +7,6 @@ import mujoco.viewer
 import time
 from bin_picking.objects.objects import XmlObject, XmlObjectCollection
 from bin_picking.objects.stl_objects import StlBody
-from scipy.spatial.transform import Rotation
 
 if TYPE_CHECKING:
     from bin_picking.robots.robot import PTPMocapActor
@@ -85,11 +84,10 @@ class MujocoEnv(XmlObject):
         for component in self.components_active_at_runtime:
             positions = component.get_link_positions()
 
-            for link_name, (pos, euler) in positions.items():
+            for link_name, (pos, quat) in positions.items():
                 i_mocap = m.body(link_name).mocapid
-                rot = Rotation.from_euler("xyz", euler, degrees=True)
-                d.mocap_quat[i_mocap] = rot.as_quat()
                 d.mocap_pos[i_mocap] = pos
+                d.mocap_quat[i_mocap] = quat
         mujoco.mj_step(m, d)
 
     def run_with_passive_viewer(self, duration_seconds: float = 30.0):

@@ -4,6 +4,7 @@ from gymnasium import spaces
 import numpy as np
 from bin_picking.objects.mujoco_env import MujocoEnv
 from bin_picking.objects.objects import XmlObject, XmlObjectCollection
+from scipy.spatial.transform import Rotation
 
 
 class KinematicLink(XmlObject):
@@ -11,8 +12,8 @@ class KinematicLink(XmlObject):
         self,
         name,
         alpha,
-        link_length,
-        offset_joint,
+        link_length_z,
+        offset_joint_x,
         theta,
         last_link: "KinematicLink" = None,
         is_last: bool = False,
@@ -28,9 +29,9 @@ class KinematicLink(XmlObject):
 
         self.last_link = last_link
         self.rot_x = np.deg2rad(alpha)
-        self.trans_x = link_length
+        self.trans_x = offset_joint_x
         self.rot_z = np.deg2rad(theta)
-        self.trans_z = offset_joint
+        self.trans_z = link_length_z
         self.is_last = is_last
         self.welded_body = XmlObject("body", {"name": f"{name}_collision"})
         self.append(self.welded_body)
@@ -39,7 +40,7 @@ class KinematicLink(XmlObject):
                 "geom",
                 {
                     "type": "cylinder" if is_last or last_link is None else "capsule",
-                    "fromto": f"0 0 0 {link_length} 0 {offset_joint}",
+                    "fromto": f"0 0 0 {offset_joint_x} 0 {link_length_z}",
                     "size": "0.02",
                 },
             )
@@ -57,6 +58,12 @@ class KinematicLink(XmlObject):
         self.position_is_calculated = True
         self.calculated_t_mat = t_mat
 
+    def get_position(self):
+        prev_t_mat = (
+            self.last_link.calculate_t_mat_recursively() if self.last_link else np.eye(4)
+        ) @ self.rot_mat_z(self.axis_position)
+        return self.t_mat_to_pos_quat(prev_t_mat), prev_t_mat
+
     def calculate_t_mat_recursively(self):
         if self.position_is_calculated:
             return self.calculated_t_mat
@@ -71,6 +78,17 @@ class KinematicLink(XmlObject):
             t_mat = prev_t_mat @ self.get_own_t_mat(self.axis_position)
             self.set_position_calculated(t_mat)
             return t_mat
+
+    def rot_mat_z(self, axis_angle):
+        axis_rad = np.deg2rad(axis_angle)
+        return np.array(
+            [
+                [np.cos(self.rot_z + axis_rad), -np.sin(self.rot_z + axis_rad), 0, 0],
+                [np.sin(self.rot_z + axis_rad), np.cos(self.rot_z + axis_rad), 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ]
+        )
 
     def get_own_t_mat(self, axis_angle):
         axis_rad = np.deg2rad(axis_angle)
@@ -92,6 +110,10 @@ class KinematicLink(XmlObject):
                 [0, 0, 0, 1],
             ]
         )
+
+    def t_mat_to_pos_quat(self, t_mat):
+        rot = Rotation.from_matrix(t_mat[:3, :3])
+        return t_mat[:3, 3], rot.as_quat()
 
 
 class PTPMocapActor:
@@ -182,23 +204,7 @@ class PTPMocapActor:
         axis_positions = self.get_axis_value()
         for body, ap in zip(self.bodies, axis_positions):
             body.set_axis_position(ap)
-        return {
-            body.mocap_name: self.t_mat_to_pos_rot(body.calculate_t_mat_recursively())
-            for body in self.bodies
-        }
-
-    def t_mat_to_pos_rot(self, t_mat):
-        pos = t_mat[:3, 3]
-        rot = np.array(
-            [
-                np.rad2deg(np.arctan2(t_mat[2, 1], t_mat[2, 2])),  # roll
-                np.rad2deg(
-                    np.arctan2(-t_mat[2, 0], np.sqrt(t_mat[2, 1] ** 2 + t_mat[2, 2] ** 2))
-                ),  # pitch
-                np.rad2deg(np.arctan2(t_mat[1, 0], t_mat[0, 0])),  # yaw
-            ]
-        )
-        return pos, rot
+        return {body.mocap_name: body.get_position()[0] for body in self.bodies}
 
 
 class ParallelGripper(PTPMocapActor):
@@ -253,9 +259,9 @@ class Robot(PTPMocapActor):
                 KinematicLink(
                     name=f"link_{i}",
                     alpha=neutral_dh_parameters[i][0],
-                    link_length=neutral_dh_parameters[i][1],
+                    link_length_z=neutral_dh_parameters[i][1],
                     theta=neutral_dh_parameters[i][2],
-                    offset_joint=neutral_dh_parameters[i][3],
+                    offset_joint_x=neutral_dh_parameters[i][3],
                     last_link=self.links[-1] if self.links else None,
                     is_last=(i == len(axis_limits_deg)),
                 )
