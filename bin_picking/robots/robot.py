@@ -1,159 +1,83 @@
-from typing import Callable
+from abc import ABC
 from xml.etree import ElementTree as ET
 from gymnasium import spaces
 import numpy as np
 from bin_picking.objects.mujoco_env import MujocoEnv
 from bin_picking.objects.objects import XmlObject, XmlObjectCollection
-from scipy.spatial.transform import Rotation
+import pytorch_kinematics as pk
+
+
+class Base(XmlObject):
+    def __init__(self, name):
+        super().__init__(
+            "body",
+            {"name": name},
+        )
+        self.append(
+            ET.Element(
+                "geom",
+                {
+                    "type": "cylinder",
+                    "fromto": "0 0 0 0 0 0.1",
+                    "size": "0.02",
+                },
+            )
+        )
 
 
 class KinematicLink(XmlObject):
     def __init__(
         self,
         name,
-        alpha,
-        link_length_z,
-        offset_joint_x,
-        theta,
-        last_link: "KinematicLink" = None,
-        is_last: bool = False,
+        sizes: tuple[float, float, float] = (0, 0, 0.1),
+        geom_type="capsule",
     ):
         self.mocap_name = f"{name}_mocap"
         super().__init__(
             "body",
             {"name": self.mocap_name, "mocap": "true"},
         )
-        self.position_is_calculated = False
-        self.calculated_t_mat = None
-        self.axis_position = None
 
-        self.last_link = last_link
-        self.rot_x = np.deg2rad(alpha)
-        self.trans_x = offset_joint_x
-        self.rot_z = np.deg2rad(theta)
-        self.trans_z = link_length_z
-        self.is_last = is_last
         self.welded_body = XmlObject("body", {"name": f"{name}_collision"})
         self.append(self.welded_body)
         self.welded_body.append(
             ET.Element(
                 "geom",
                 {
-                    "type": "cylinder" if is_last or last_link is None else "capsule",
-                    "fromto": f"0 0 0 {offset_joint_x} 0 {link_length_z}",
+                    "type": geom_type,
+                    "fromto": f"0 0 0 {-sizes[0]} {-sizes[1]} {-sizes[2]}",
                     "size": "0.02",
                 },
             )
         )
 
-    def reset_position_calculation(self):
-        self.position_is_calculated = False
-        self.calculated_t_mat = None
 
-    def set_axis_position(self, axis_position):
-        self.axis_position = axis_position
-        self.reset_position_calculation()
-
-    def set_position_calculated(self, t_mat):
-        self.position_is_calculated = True
-        self.calculated_t_mat = t_mat
-
-    def get_position(self):
-        prev_t_mat = (
-            self.last_link.calculate_t_mat_recursively() if self.last_link else np.eye(4)
-        ) @ self.rot_mat_z(self.axis_position)
-        return self.t_mat_to_pos_quat(prev_t_mat), prev_t_mat
-
-    def calculate_t_mat_recursively(self):
-        if self.position_is_calculated:
-            return self.calculated_t_mat
-        if self.last_link is None:
-            t_mat = np.eye(4)
-            t_mat[0, 3] = self.trans_x
-            t_mat[2, 3] = self.trans_z
-            self.set_position_calculated(t_mat)
-            return t_mat
-        else:
-            prev_t_mat = self.last_link.calculate_t_mat_recursively()
-            t_mat = prev_t_mat @ self.get_own_t_mat(self.axis_position)
-            self.set_position_calculated(t_mat)
-            return t_mat
-
-    def rot_mat_z(self, axis_angle):
-        axis_rad = np.deg2rad(axis_angle)
-        return np.array(
-            [
-                [np.cos(self.rot_z + axis_rad), -np.sin(self.rot_z + axis_rad), 0, 0],
-                [np.sin(self.rot_z + axis_rad), np.cos(self.rot_z + axis_rad), 0, 0],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1],
-            ]
-        )
-
-    def get_own_t_mat(self, axis_angle):
-        axis_rad = np.deg2rad(axis_angle)
-        return np.array(
-            [
-                [
-                    np.cos(self.rot_z + axis_rad),
-                    -np.sin(self.rot_z + axis_rad) * np.cos(self.rot_x),
-                    np.sin(self.rot_z + axis_rad) * np.sin(self.rot_x),
-                    self.trans_x * np.cos(self.rot_z + axis_rad),
-                ],
-                [
-                    np.sin(self.rot_z + axis_rad),
-                    np.cos(self.rot_z + axis_rad) * np.cos(self.rot_x),
-                    -np.cos(self.rot_z + axis_rad) * np.sin(self.rot_x),
-                    self.trans_x * np.sin(self.rot_z + axis_rad),
-                ],
-                [0, np.sin(self.rot_x), np.cos(self.rot_x), self.trans_z],
-                [0, 0, 0, 1],
-            ]
-        )
-
-    def t_mat_to_pos_quat(self, t_mat):
-        rot = Rotation.from_matrix(t_mat[:3, :3])
-        return t_mat[:3, 3], rot.as_quat()
-
-
-class PTPMocapActor:
+class PTPController:
     def __init__(
         self,
         env: MujocoEnv | None,
         name,
-        axis_limits_deg: list[tuple[float, float]],
-        axis_speed_deg_per_sec: list[float],
-        bodies: list[KinematicLink] = [],
-        initial_axis_position=None,
+        axis_limits_rad: tuple[list[float]],
+        axis_speed_rad_per_sec: tuple[list[float]],
+        initial_axis_position: list[float] | None = None,
     ):
         self.name = name
-        self.bodies = bodies
-        self.collection = XmlObjectCollection(bodies)
-        self.nbr_of_joints = len(axis_limits_deg)
-        self.axis_limits_deg = axis_limits_deg
+        self.nbr_of_joints = len(axis_limits_rad[0])
+        self.axis_limits_rad = axis_limits_rad
         self.axis_position = initial_axis_position or [0.0] * self.nbr_of_joints
-        if self.nbr_of_joints != len(axis_limits_deg):
+        if self.nbr_of_joints != len(axis_speed_rad_per_sec[0]):
             raise ValueError(
-                "Length of axis_limits_deg and axis_speed_deg_per_sec must match nbr_of_joints"
+                "Length of axis_limits_rad and axis_speed_rad_per_sec must match nbr_of_joints"
             )
-        self.action_space = spaces.Box(
-            low=np.array([limit[0] for limit in axis_limits_deg], dtype=np.float32),
-            high=np.array([limit[1] for limit in axis_limits_deg], dtype=np.float32),
-            dtype=np.float32,
-        )
         self.env = env
         self.callback_time = lambda: 0
 
-        self.axis_speed_deg_per_sec = axis_speed_deg_per_sec
+        self.axis_speed_rad_per_sec = axis_speed_rad_per_sec
         self.motion_startpoint = None
         self.motion_starttime = None
         self.motion_endpoint = None
         self.motion_endtime = None
         self.in_motion = False
-        if self.nbr_of_joints != len(axis_speed_deg_per_sec):
-            raise ValueError(
-                "Length of axis_limits_deg and axis_speed_deg_per_sec must match nbr_of_joints"
-            )
 
     def initialize(self, env: MujocoEnv):
         self.env = env
@@ -164,11 +88,13 @@ class PTPMocapActor:
             raise ValueError(f"Position must have {self.nbr_of_joints} elements")
         if self.in_motion:
             self.terminate_motion()
-        delta_per_axis = [
-            abs(position[i] - self.axis_position[i]) for i in range(self.nbr_of_joints)
+        delta_per_axis = [position[i] - self.axis_position[i] for i in range(self.nbr_of_joints)]
+        duration_per_axis = [
+            delta_per_axis[i] / self.axis_speed_rad_per_sec[0 if delta_per_axis[i] < 0 else 1][i]
+            for i in range(self.nbr_of_joints)
         ]
-        leading_axis = max(range(self.nbr_of_joints), key=lambda i: delta_per_axis[i])
-        motion_duration = delta_per_axis[leading_axis] / self.axis_speed_deg_per_sec[leading_axis]
+        leading_axis = max(range(self.nbr_of_joints), key=lambda i: duration_per_axis[i])
+        motion_duration = duration_per_axis[leading_axis]
         self.motion_startpoint = self.axis_position.copy()
         self.motion_starttime = self.callback_time()
         self.motion_endpoint = position
@@ -198,78 +124,77 @@ class PTPMocapActor:
             ]
             return self.axis_position
 
-    def get_link_positions(self):
-        for body in self.bodies:
-            body.reset_position_calculation()
-        axis_positions = self.get_axis_value()
-        for body, ap in zip(self.bodies, axis_positions):
-            body.set_axis_position(ap)
-        return {body.mocap_name: body.get_position()[0] for body in self.bodies}
+
+class ActiveMujocoComponent(ABC):
+    def __init__(self):
+        super().__init__()
+        self.collection: XmlObjectCollection
+
+    def initialize(self, env: MujocoEnv):
+        raise NotImplementedError
+
+    def get_link_positions(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        """
+        Should return a dictionary mapping link names to their current position and orientation (as a quaternion).
+        """
+        raise NotImplementedError
 
 
-class ParallelGripper(PTPMocapActor):
-    def __init__(self, name):
-        super().__init__(
-            name,
-            axis_limits_deg=[(0, 100)],
-            axis_speed_deg_per_sec=[10],
-            initial_axis_position=[0],
-        )
-
-
-class Kinematics6DOF(PTPMocapActor):
-    def __init__(self, name):
-        super().__init__(
-            name,
-            axis_limits_deg=[(-180, 180)] * 6,
-            axis_speed_deg_per_sec=[30] * 6,
-            initial_axis_position=[0] * 6,
-        )
-
-
-class Robot(PTPMocapActor):
+class Robot(ActiveMujocoComponent):
     def __init__(
         self,
         name,
-        tool: PTPMocapActor,
-        neutral_dh_parameters: list[tuple[float, float, float, float]],
-        axis_limits_deg: list[tuple[float, float]],
-        axis_speed_deg_per_sec: list[float],
-        initial_axis_position=None,
+        chain: pk.Chain,
     ):
-        super().__init__(
-            None,
-            name=name,
-            callback_time=lambda: 0.0,
-            axis_limits_deg=axis_limits_deg + tool.axis_limits_deg if tool else axis_limits_deg,
-            axis_speed_deg_per_sec=axis_speed_deg_per_sec + tool.axis_speed_deg_per_sec
-            if tool
-            else axis_speed_deg_per_sec,
-            initial_axis_position=initial_axis_position + tool.axis_position
-            if initial_axis_position and tool
-            else [0.0] * (len(axis_limits_deg)) + tool.axis_position
-            if tool
-            else initial_axis_position,
-        )
-        self.dh_parameters = neutral_dh_parameters
-        self.links = []
+        self.chain = chain
 
-        for i in range(len(axis_limits_deg) + 1):
-            self.links.append(
-                KinematicLink(
-                    name=f"link_{i}",
-                    alpha=neutral_dh_parameters[i][0],
-                    link_length_z=neutral_dh_parameters[i][1],
-                    theta=neutral_dh_parameters[i][2],
-                    offset_joint_x=neutral_dh_parameters[i][3],
-                    last_link=self.links[-1] if self.links else None,
-                    is_last=(i == len(axis_limits_deg)),
-                )
-            )
-        self.xml_objects = [link for link in self.links]
+        limits = chain.get_joint_limits()
+        velocities = chain.get_joint_velocity_limits()
+        joints = list(chain.get_joints())
+        self.links = [
+            KinematicLink(f"{name}_link_{i}", joint.offset.get_matrix()[..., :3, 3].flatten())
+            for i, joint in enumerate(joints)
+        ]
+        self.bodies = [Base(f"{name}_base")] + list(self.links)
+        self.collection = XmlObjectCollection(self.bodies)
+
+        joints_to_links = {
+            joint.name: links[0].name for joint, links in self.chain.get_joints_and_child_links()
+        }
+        self.joint_names_for_bodies = [joints_to_links[joint.name] for joint in joints]
+
+        self.controller = PTPController(
+            None,
+            name=f"{name}_controller",
+            axis_limits_rad=limits,
+            axis_speed_rad_per_sec=velocities,
+        )
+
+        self.action_space = spaces.Box(
+            low=np.array(limits[0], dtype=np.float32),
+            high=np.array(limits[1], dtype=np.float32),
+            dtype=np.float32,
+        )
 
     def move_to(self, position):
-        return super().move_to(position)
+        return self.controller.move_to(position)
+
+    def initialize(self, env: MujocoEnv):
+        self.controller.initialize(env)
 
     def get_axis_value(self):
-        return super().get_axis_value()
+        return self.controller.get_axis_value()
+
+    def get_link_positions(self):
+        axis_values = self.controller.get_axis_value()
+        link_positions = self.chain.forward_kinematics(axis_values, end_only=False)
+        return {
+            link.mocap_name: self.mat_to_pos_quat(link_positions[joint_name].get_matrix())
+            for link, joint_name in zip(self.links, self.joint_names_for_bodies)
+        }
+
+    def mat_to_pos_quat(self, mat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        pos = mat[..., :3, 3].flatten().tolist()
+        rot_mat = mat[..., :3, :3]
+        quat = pk.matrix_to_quaternion(rot_mat).flatten().tolist()
+        return pos, quat

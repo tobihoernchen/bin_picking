@@ -9,7 +9,7 @@ from bin_picking.objects.objects import XmlObject, XmlObjectCollection
 from bin_picking.objects.stl_objects import StlBody
 
 if TYPE_CHECKING:
-    from bin_picking.robots.robot import PTPMocapActor
+    from bin_picking.robots.robot import ActiveMujocoComponent
 
 
 class MujocoEnv(XmlObject):
@@ -18,7 +18,7 @@ class MujocoEnv(XmlObject):
         self.m: None | mujoco.MjModel = None
         self.d: None | mujoco.MjData = None
         self.worldbody = XmlObject("worldbody")
-        self.components_active_at_runtime: list["PTPMocapActor"] = []
+        self.components_active_at_runtime: list["ActiveMujocoComponent"] = []
         # Add Floor
         self.worldbody.append(
             ET.Element(
@@ -35,7 +35,7 @@ class MujocoEnv(XmlObject):
         for obj in objects:
             self.worldbody.append(obj)
 
-    def append_active_component(self, component: "PTPMocapActor"):
+    def append_active_component(self, component: "ActiveMujocoComponent"):
         self.components_active_at_runtime.append(component)
         component.initialize(self)
         self.append_object_collection(component.collection)
