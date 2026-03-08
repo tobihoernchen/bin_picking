@@ -3,53 +3,118 @@ from xml.etree import ElementTree as ET
 from gymnasium import spaces
 import numpy as np
 from bin_picking.objects.mujoco_env import MujocoEnv
-from bin_picking.objects.objects import XmlObject, XmlObjectCollection
+from bin_picking.objects.objects import Asset, XmlObject, XmlObjectCollection
 import pytorch_kinematics as pk
+from pytorch_kinematics.frame import Visual
+import trimesh
+import pathlib
+import glob
+
+BIN_PICKING_ROBOT_CACHE_FOLDER = pathlib.Path(__file__).parent / ".bin_picking/"
 
 
-class Base(XmlObject):
-    def __init__(self, name):
+def get_simplified_mesh(path, face_count=200):
+    mesh = trimesh.load_mesh(path)
+    simpler_mesh = mesh.convex_hull
+    simpler_mesh = simpler_mesh.simplify_quadric_decimation(
+        face_count=min(face_count, len(simpler_mesh.faces)), aggression=3
+    )
+    return simpler_mesh
+
+
+def register_robot_meshes_from_menagerie(menagerie_path: str, name: str):
+    path = pathlib.Path(menagerie_path)
+    obj_path = path / "assets"
+    obj_files = glob.glob(str(obj_path / "*.obj"))
+
+    decomposed_path = BIN_PICKING_ROBOT_CACHE_FOLDER / name
+    decomposed_path.mkdir(parents=True, exist_ok=True)
+    for file in obj_files:
+        mesh = get_simplified_mesh(file)
+        mesh.export(decomposed_path / pathlib.Path(file).name)
+
+
+class AbstractLink(XmlObject):
+    def get_mesh_geom(self, file_path: pathlib.Path, mesh_name: str, pos: str, quat: str):
+        self.assets.add(
+            Asset(
+                "mesh",
+                {
+                    "name": mesh_name,
+                    "file": str(file_path.resolve()),
+                },
+            )
+        )
+        geom = ET.Element(
+            "geom",
+            {
+                "type": "mesh",
+                "mesh": mesh_name,
+                "material": "body_material",
+                "friction": "1 0.005 0.0001",
+                "pos": pos,
+                "quat": quat,
+            },
+        )
+        return geom
+
+    def build_visual(
+        self,
+        robot_name,
+        visual: Visual,
+        pos: tuple[float, float, float] = (0, 0, 0),
+        quat: tuple[float, float, float, float] = (0, 0, 0, 1),
+    ):
+        if visual.geom_type == "mesh":
+            link_name = visual.geom_param[0].split("/")[-1].split(".")[0]
+            obj_files = (BIN_PICKING_ROBOT_CACHE_FOLDER / robot_name).glob(f"{link_name}*.obj")
+            geoms_elements = []
+            for obj_file in obj_files:
+                geoms_elements.append(
+                    self.get_mesh_geom(
+                        obj_file, obj_file.stem, " ".join(map(str, pos)), " ".join(map(str, quat))
+                    )
+                )
+            return geoms_elements
+
+        else:
+            raise NotImplementedError(f"Unsupported geometry type: {visual.geom_type}")
+
+
+class DeadLink(AbstractLink):
+    def __init__(self, name, robot_name, visuals: list[Visual], pos: str, quat: str):
         super().__init__(
             "body",
             {"name": name},
         )
-        self.append(
-            ET.Element(
-                "geom",
-                {
-                    "type": "cylinder",
-                    "fromto": "0 0 0 0 0 0.1",
-                    "size": "0.02",
-                },
-            )
-        )
+        geom_lists = [self.build_visual(robot_name, visual, pos, quat) for visual in visuals]
+        for geom_list in geom_lists:
+            for mesh_geom in geom_list:
+                self.append(mesh_geom)
+
+        material = Asset("material", {})
+        material.set("name", "body_material")
+        self.assets.add(material)
 
 
-class KinematicLink(XmlObject):
-    def __init__(
-        self,
-        name,
-        sizes: tuple[float, float, float] = (0, 0, 0.1),
-        geom_type="capsule",
-    ):
+class KinematicLink(AbstractLink):
+    def __init__(self, name, robot_name, visuals: list[Visual], pos: str, quat: str):
         self.mocap_name = f"{name}_mocap"
         super().__init__(
             "body",
             {"name": self.mocap_name, "mocap": "true"},
         )
 
-        self.welded_body = XmlObject("body", {"name": f"{name}_collision"})
-        self.append(self.welded_body)
-        self.welded_body.append(
-            ET.Element(
-                "geom",
-                {
-                    "type": geom_type,
-                    "fromto": f"0 0 0 {-sizes[0]} {-sizes[1]} {-sizes[2]}",
-                    "size": "0.02",
-                },
-            )
-        )
+        welded_body = XmlObject("body", {"name": f"{name}_visual"})
+        geom_lists = [self.build_visual(robot_name, visual, pos, quat) for visual in visuals]
+        for geom_list in geom_lists:
+            for mesh_geom in geom_list:
+                welded_body.append(mesh_geom)
+        self.append(welded_body)
+
+        material = Asset("material", {})
+        material.set("name", "body_material")
+        self.assets.add(material)
 
 
 class PTPController:
@@ -83,9 +148,27 @@ class PTPController:
         self.env = env
         self.callback_time = lambda: 0 if self.env.d is None else self.env.d.time
 
-    def move_to(self, position: list[float]):
+    def move_to(self, position: list[float], clipping: bool = False):
         if len(position) != self.nbr_of_joints:
             raise ValueError(f"Position must have {self.nbr_of_joints} elements")
+        # check for axis limits
+        if clipping:
+            position = [
+                max(
+                    self.axis_limits_rad[0][i],
+                    min(self.axis_limits_rad[1][i], position[i]),
+                )
+                for i in range(self.nbr_of_joints)
+            ]
+        else:
+            for i in range(self.nbr_of_joints):
+                if (
+                    position[i] < self.axis_limits_rad[0][i]
+                    or position[i] > self.axis_limits_rad[1][i]
+                ):
+                    raise ValueError(
+                        f"Position for joint {i} must be between {self.axis_limits_rad[0][i]} and {self.axis_limits_rad[1][i]}"
+                    )
         if self.in_motion:
             self.terminate_motion()
         delta_per_axis = [position[i] - self.axis_position[i] for i in range(self.nbr_of_joints)]
@@ -145,23 +228,41 @@ class Robot(ActiveMujocoComponent):
         self,
         name,
         chain: pk.Chain,
+        geometry_name: str,
     ):
         self.chain = chain
 
+        self.kinematic_links = {frame: None for frame in self.chain.get_frame_names()}
+        self.dead_links = {}
+
+        for i, link in enumerate(self.chain.get_links()):
+            if (
+                link.offset is None
+                or len(link.visuals) == 0
+                or all([v.geom_type is None for v in link.visuals])
+            ):
+                continue
+            if link.name not in self.kinematic_links:
+                self.dead_links[link.name] = DeadLink(
+                    f"{name}_link_{i}",
+                    geometry_name,
+                    link.visuals,
+                    *self.mat_to_pos_quat(link.offset.get_matrix()),
+                )
+            else:
+                self.kinematic_links[link.name] = KinematicLink(
+                    f"{name}_link_{i}",
+                    geometry_name,
+                    link.visuals,
+                    *self.mat_to_pos_quat(link.offset.get_matrix()),
+                )
+
         limits = chain.get_joint_limits()
         velocities = chain.get_joint_velocity_limits()
-        joints = list(chain.get_joints())
-        self.links = [
-            KinematicLink(f"{name}_link_{i}", joint.offset.get_matrix()[..., :3, 3].flatten())
-            for i, joint in enumerate(joints)
-        ]
-        self.bodies = [Base(f"{name}_base")] + list(self.links)
-        self.collection = XmlObjectCollection(self.bodies)
 
-        joints_to_links = {
-            joint.name: links[0].name for joint, links in self.chain.get_joints_and_child_links()
-        }
-        self.joint_names_for_bodies = [joints_to_links[joint.name] for joint in joints]
+        self.collection = XmlObjectCollection(
+            list(self.kinematic_links.values()) + list(self.dead_links.values())
+        )
 
         self.controller = PTPController(
             None,
@@ -190,7 +291,7 @@ class Robot(ActiveMujocoComponent):
         link_positions = self.chain.forward_kinematics(axis_values, end_only=False)
         return {
             link.mocap_name: self.mat_to_pos_quat(link_positions[joint_name].get_matrix())
-            for link, joint_name in zip(self.links, self.joint_names_for_bodies)
+            for joint_name, link in self.kinematic_links.items()
         }
 
     def mat_to_pos_quat(self, mat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

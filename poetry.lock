@@ -711,6 +711,30 @@ files = [
 ]
 
 [[package]]
+name = "fast-simplification"
+version = "0.1.13"
+description = "Wrapper around the Fast-Quadric-Mesh-Simplification library."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "fast_simplification-0.1.13-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:3c95bd92a4817eb96d994e792df38ead3457ea01d58a095d81d53cb0fb4e1578"},
+    {file = "fast_simplification-0.1.13-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:9fad0599c569fc8d56429a42812431f51f732cd56046b06f5e061f8cb6e7a54d"},
+    {file = "fast_simplification-0.1.13-cp310-cp310-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:da89a8787fdc76ed5dea5d373dc95f941044e658dce65e23fca32a624ce5d440"},
+    {file = "fast_simplification-0.1.13-cp310-cp310-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a6c82a25fff7892b39eb4147b6286fea4ff42dd62d1137591197d0b6b2f68a78"},
+    {file = "fast_simplification-0.1.13-cp310-cp310-win_amd64.whl", hash = "sha256:c57db49c27452168a60b00c6ab643ff8ed97b8ebb2d121315ec2553992adc6c0"},
+    {file = "fast_simplification-0.1.13-cp311-abi3-macosx_10_9_x86_64.whl", hash = "sha256:4a89d1d0ecbb547528048ab6333bf2287767dbba727fa0553b18a138802d9b61"},
+    {file = "fast_simplification-0.1.13-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:f3bcd10b5de2a85fe41d4ba27ccdf3adc723c2a0f5a1afb47f01e95c6c158651"},
+    {file = "fast_simplification-0.1.13-cp311-abi3-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:3ed45b1f07d718832aec76ae92c91ab8e84001d935055379ce0089b0cfb87870"},
+    {file = "fast_simplification-0.1.13-cp311-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c694f0f0bbafbaf29acf7043de603b4c85259f2eae7b802d4946d47976e9959d"},
+    {file = "fast_simplification-0.1.13-cp311-abi3-win_amd64.whl", hash = "sha256:94565811e708828f77c0a30eb8f05278e8f5826f2cbf1791cc470f6471dd0dce"},
+    {file = "fast_simplification-0.1.13.tar.gz", hash = "sha256:5e95c966ad4ddf04b0a49013c92e5a06a3b888c6e02bb3c7ab3817fc8ba0f03f"},
+]
+
+[package.dependencies]
+numpy = "*"
+
+[[package]]
 name = "fastjsonschema"
 version = "2.21.2"
 description = "Fastest Python implementation of JSON schema"
@@ -873,6 +897,40 @@ test = ["aiohttp (!=4.0.0a0,!=4.0.0a1)", "numpy", "pytest", "pytest-asyncio (!=0
 test-downstream = ["aiobotocore (>=2.5.4,<3.0.0)", "dask[dataframe,test]", "moto[server] (>4,<5)", "pytest-timeout", "xarray"]
 test-full = ["adlfs", "aiohttp (!=4.0.0a0,!=4.0.0a1)", "cloudpickle", "dask", "distributed", "dropbox", "dropboxdrivefs", "fastparquet", "fusepy", "gcsfs", "jinja2", "kerchunk", "libarchive-c", "lz4", "notebook", "numpy", "ocifs", "pandas", "panel", "paramiko", "pyarrow", "pyarrow (>=1)", "pyftpdlib", "pygit2", "pytest", "pytest-asyncio (!=0.22.0)", "pytest-benchmark", "pytest-cov", "pytest-mock", "pytest-recording", "pytest-rerunfailures", "python-snappy", "requests", "smbprotocol", "tqdm", "urllib3", "zarr", "zstandard ; python_version < \"3.14\""]
 tqdm = ["tqdm"]
+
+[[package]]
+name = "gitdb"
+version = "4.0.12"
+description = "Git Object Database"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "gitdb-4.0.12-py3-none-any.whl", hash = "sha256:67073e15955400952c6565cc3e707c554a4eea2e428946f7a4c162fab9bd9bcf"},
+    {file = "gitdb-4.0.12.tar.gz", hash = "sha256:5ef71f855d191a3326fcfbc0d5da835f26b13fbcba60c32c21091c349ffdb571"},
+]
+
+[package.dependencies]
+smmap = ">=3.0.1,<6"
+
+[[package]]
+name = "gitpython"
+version = "3.1.46"
+description = "GitPython is a Python library used to interact with Git repositories"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "gitpython-3.1.46-py3-none-any.whl", hash = "sha256:79812ed143d9d25b6d176a10bb511de0f9c67b1fa641d82097b0ab90398a2058"},
+    {file = "gitpython-3.1.46.tar.gz", hash = "sha256:400124c7d0ef4ea03f7310ac2fbf7151e09ff97f2a3288d64a440c584a29c37f"},
+]
+
+[package.dependencies]
+gitdb = ">=4.0.1,<5"
+
+[package.extras]
+doc = ["sphinx (>=7.1.2,<7.2)", "sphinx-autodoc-typehints", "sphinx_rtd_theme"]
+test = ["coverage[toml]", "ddt (>=1.1.1,!=1.4.3)", "mock ; python_version < \"3.8\"", "mypy (==1.18.2) ; python_version >= \"3.9\"", "pre-commit", "pytest (>=7.3.1)", "pytest-cov", "pytest-instafail", "pytest-mock", "pytest-sugar", "typing-extensions ; python_version < \"3.11\""]
 
 [[package]]
 name = "glfw"
@@ -3337,6 +3395,25 @@ pygments = ">=2.13.0,<3.0.0"
 jupyter = ["ipywidgets (>=7.5.1,<9)"]
 
 [[package]]
+name = "robot-descriptions"
+version = "1.22.0"
+description = "Import open source robot description as Python modules."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "robot_descriptions-1.22.0-py3-none-any.whl", hash = "sha256:b5638237e34ebe1efeb1b3697ea96ae96b80abe13d297044fa1f5765d9bcd5d9"},
+    {file = "robot_descriptions-1.22.0.tar.gz", hash = "sha256:64e2681b4207ff9bddcd71accd164b437b1b29992d7d2db43ce0d363685cdda7"},
+]
+
+[package.dependencies]
+GitPython = ">=3.1.18"
+tqdm = ">=4.64.0"
+
+[package.extras]
+opts = ["idyntree (>=8.0.0)", "mujoco (>=3.2.0)", "pin (>=2.6.10)", "pybullet (>=3.2.6)", "robomeshcat (>=1.0.4)", "yourdfpy (>=0.0.56)"]
+
+[[package]]
 name = "rpds-py"
 version = "0.30.0"
 description = "Python bindings to Rust's persistent data structures (rpds)"
@@ -3612,6 +3689,18 @@ groups = ["main"]
 files = [
     {file = "six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"},
     {file = "six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81"},
+]
+
+[[package]]
+name = "smmap"
+version = "5.0.2"
+description = "A pure Python implementation of a sliding window memory map manager"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "smmap-5.0.2-py3-none-any.whl", hash = "sha256:b30115f0def7d7531d22a0fb6502488d879e75b260a9db4d0819cfb25403af5e"},
+    {file = "smmap-5.0.2.tar.gz", hash = "sha256:26ea65a03958fa0c8a1c7e8c7a58fdc77221b8910f6be2131affade476898ad5"},
 ]
 
 [[package]]
@@ -4091,4 +4180,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.11"
-content-hash = "af60c7ad0d10ffa601c990e5f4ee30b7700835ba6a7c6add71c866a8c4785e42"
+content-hash = "25d4a674775a0ce1a5388e0ba9880724b58f65cd2fe4828ea827568cab567e2a"
