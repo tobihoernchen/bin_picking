@@ -31,6 +31,14 @@ class XmlObject(ET.Element):
         self.set("pos", f"{x} {y} {z}")
         return self
 
+    def move(self, dx, dy, dz):
+        if self.tag not in ["body", "geom", "site", "camera", "light"]:
+            raise ValueError(f"Cannot set position for tag '{self.tag}'")
+        pos_str = self.get("pos", "0 0 0")
+        x, y, z = map(float, pos_str.split())
+        self.set("pos", f"{x + dx} {y + dy} {z + dz}")
+        return self
+
     def rotate(self, x, y, z):
         if self.tag not in ["body", "geom", "site", "camera", "light"]:
             raise ValueError(f"Cannot set orientation for tag '{self.tag}'")

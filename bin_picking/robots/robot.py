@@ -231,6 +231,7 @@ class Robot(ActiveMujocoComponent):
         geometry_name: str,
     ):
         self.chain = chain
+        self.position = np.zeros(3)
 
         self.kinematic_links = {frame: None for frame in self.chain.get_frame_names()}
         self.dead_links = {}
@@ -277,7 +278,7 @@ class Robot(ActiveMujocoComponent):
             dtype=np.float32,
         )
 
-    def move_to(self, position):
+    def to_position(self, position):
         return self.controller.move_to(position)
 
     def initialize(self, env: MujocoEnv):
@@ -295,7 +296,12 @@ class Robot(ActiveMujocoComponent):
         }
 
     def mat_to_pos_quat(self, mat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        pos = mat[..., :3, 3].flatten().tolist()
+        pos = (mat[..., :3, 3].flatten() + self.position).tolist()
         rot_mat = mat[..., :3, :3]
         quat = pk.matrix_to_quaternion(rot_mat).flatten().tolist()
         return pos, quat
+
+    def move(self, dx, dy, dz):
+        self.position += np.array([dx, dy, dz])
+        for link in self.dead_links.values():
+            link.move(dx, dy, dz)

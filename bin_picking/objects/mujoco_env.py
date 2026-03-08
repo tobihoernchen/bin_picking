@@ -38,7 +38,9 @@ class MujocoEnv(XmlObject):
     def append_active_component(self, component: "ActiveMujocoComponent"):
         self.components_active_at_runtime.append(component)
         component.initialize(self)
-        self.append_object_collection(component.collection)
+        self.append(component) if isinstance(
+            component, XmlObject
+        ) else self.append_object_collection(component.collection)
 
     def xml_spec(self) -> str:
         tree = ET.fromstring(ET.tostring(self, encoding="unicode"))
