@@ -12,10 +12,13 @@ class XmlObject(ET.Element):
         return ET.tostring(self, encoding="unicode")
 
     def get_assets(self):
-        assets = self.assets.copy()
+        # Optimized: use |= operator instead of union() for faster set operations
+        assets = set(self.assets)  # Start with own assets as set
         for child in self:
             if isinstance(child, XmlObject):
-                assets = assets.union(child.get_assets())
+                child_assets = child.get_assets()
+                if child_assets:
+                    assets |= child_assets  # Faster in-place union
         return assets
 
     def assets_to_xml(self) -> str:
