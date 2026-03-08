@@ -259,14 +259,14 @@ class PTPController:
             self.get_link_positions(False)
         self.in_motion = False
 
-    def get_link_positions(self, go_to_next=False):
+    def get_link_positions(self, offset: torch.Tensor, go_to_next=False):
         if not self.in_motion:
             return self.link_position
         self.motion_actual_step += 1 if go_to_next else 0
         if self.motion_actual_step >= self.motion_total_steps:
             self.axis_position = self.motion_axis_positions[-1]
             self.link_position = {
-                k: (v[0][-1], v[1][-1]) for k, v in self.motion_link_positions.items()
+                k: (v[0][-1] + offset, v[1][-1]) for k, v in self.motion_link_positions.items()
             }
             self.in_motion = False
             return self.link_position
@@ -274,7 +274,7 @@ class PTPController:
             # Vectorized interpolation with torch tensors
             self.axis_position = self.motion_axis_positions[int(self.motion_actual_step)]
             self.link_position = {
-                k: (v[0][int(self.motion_actual_step)], v[1][int(self.motion_actual_step)])
+                k: (v[0][int(self.motion_actual_step)] + offset, v[1][int(self.motion_actual_step)])
                 for k, v in self.motion_link_positions.items()
             }
             return self.link_position
@@ -369,7 +369,7 @@ class Robot(ActiveMujocoComponent):
         return self.controller.get_axis_value()
 
     def get_link_positions(self):
-        link_positions = self.controller.get_link_positions(True)
+        link_positions = self.controller.get_link_positions(offset=self.position, go_to_next=True)
         return {
             link.mocap_name: link_positions[joint_name]
             for joint_name, link in self.kinematic_links.items()
