@@ -5,11 +5,13 @@ import trimesh
 import mujoco
 import mujoco.viewer
 import time
+import cv2
 from bin_picking.objects.objects import XmlObject, XmlObjectCollection
 from bin_picking.objects.stl_objects import StlBody
 
 if TYPE_CHECKING:
     from bin_picking.robots.robot import ActiveMujocoComponent
+    from bin_picking.robots.robot import Camera
 
 
 class MujocoEnv(XmlObject):
@@ -32,6 +34,17 @@ class MujocoEnv(XmlObject):
             )
         )
         self.append(self.worldbody)
+        # add light
+        self.worldbody.append(
+            ET.Element(
+                "light",
+                {
+                    "name": "light_top",
+                    "pos": "0 0 5",
+                    "dir": "0 0 -1",
+                },
+            )
+        )
         for obj in objects:
             self.worldbody.append(obj)
 
@@ -100,8 +113,6 @@ class MujocoEnv(XmlObject):
                 step_start = time.time()
                 self.step(m, d)
                 with viewer.lock():
-                    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = int(d.time % 2)
-
                     viewer.sync()
 
                 elapsed = time.time() - step_start
@@ -113,3 +124,32 @@ class MujocoEnv(XmlObject):
         start = d.time
         while d.time < start + duration_seconds:
             self.step(m, d)
+
+    def run_with_camera(self, camera: "Camera", duration_seconds: float = 30.0, every_x_frames=1):
+        m, d = self.get_mujoco()
+
+        start = time.time()
+        counter = 0
+        try:
+            while time.time() - start < duration_seconds:
+                step_start = time.time()
+                self.step(m, d)
+                img = camera.render_image()
+
+                counter += 1
+                if counter % every_x_frames == 0:
+                    # Convert RGB to BGR for OpenCV if needed
+                    if len(img.shape) == 3:
+                        img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                    else:
+                        img_bgr = img
+                    cv2.imshow("Camera Feed", img_bgr)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
+                    counter = 0
+
+                elapsed = time.time() - step_start
+                if m.opt.timestep > elapsed:
+                    time.sleep(m.opt.timestep - elapsed)
+        finally:
+            cv2.destroyAllWindows()

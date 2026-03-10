@@ -4,6 +4,7 @@ from gymnasium import spaces
 import numpy as np
 import torch
 from bin_picking.objects.mujoco_env import MujocoEnv
+import mujoco
 from bin_picking.objects.objects import Asset, XmlObject, XmlObjectCollection
 import pytorch_kinematics as pk
 from pytorch_kinematics.frame import Visual
@@ -63,6 +64,40 @@ def register_robot_meshes_from_menagerie(menagerie_path: str, name: str):
     for file in obj_files:
         mesh = get_simplified_mesh(file)
         mesh.export(decomposed_path / pathlib.Path(file).name)
+
+
+class Camera(XmlObject):
+    def __init__(self, name, pos: str, euler: str, width: int = 480, height: int = 480):
+        self.name = name
+        self.env = None
+        self.renderer = None
+        self.width = width
+        self.height = height
+        super().__init__(
+            "camera",
+            {
+                "name": name,
+                "mode": "fixed",
+                "pos": pos,
+                "euler": euler,
+            },
+        )
+
+    def initialize(self, env: MujocoEnv):
+        self.env = env
+
+    def render_image(self):
+        m, d = self.env.get_mujoco()
+        if self.renderer is None:
+            self.renderer = mujoco.Renderer(m, height=self.height, width=self.width)
+        mujoco.mj_forward(m, d)
+        self.renderer.update_scene(d, self.name)
+        return self.renderer.render()
+
+    def cleanup(self):
+        """Clean up renderer resources"""
+        if self.renderer is not None:
+            self.renderer.close()
 
 
 class AbstractLink(XmlObject):
@@ -146,6 +181,28 @@ class KinematicLink(AbstractLink):
         material = Asset("material", {})
         material.set("name", "body_material")
         self.assets.add(material)
+
+
+class Tool:
+    def __init__(self):
+        pass
+
+    def add_to_chain(self, chain: pk.Chain, parent_frame: str):
+        raise NotImplementedError("Tool must implement add_to_chain method")
+
+
+class ParallelGripper(Tool):
+    def __init__(self):
+        pass
+
+    def add_to_chain(self, chain: pk.Chain, parent_frame: pk.Frame):
+        gripper_frame = pk.Frame("parallel_gripper")
+        gripper_frame.joint = pk.Joint(type="fixed")
+        gripper_frame.link = pk.Link(
+            "parallel_gripper_link", None, []
+        )  # No visuals for the gripper link
+        parent_frame.children.append(gripper_frame)
+        return gripper_frame
 
 
 class PTPController:
@@ -307,9 +364,12 @@ class Robot(ActiveMujocoComponent):
         self.chain = chain
         self.device = torch.device(device)
         self.timestep = timestep
+        self.cameras: list[Camera] = []
         self.position = torch.zeros(3, device=self.device)
 
-        self.kinematic_links = {frame: None for frame in self.chain.get_frame_names()}
+        self.kinematic_links: dict[str, KinematicLink] = {
+            frame: None for frame in self.chain.get_frame_names()
+        }
         self.dead_links = {}
 
         for i, link in enumerate(self.chain.get_links()):
@@ -362,8 +422,23 @@ class Robot(ActiveMujocoComponent):
     def to_position(self, position, clipping=False, speed=1.0):
         return self.controller.move_to(position, clipping=clipping, speed=speed)
 
+    def ee_link(self):
+        return self.kinematic_links[self.chain.get_frame_names()[-1]]
+
+    def add_ee_camera(
+        self,
+        camera_name: str,
+        pos: tuple[float, float, float],
+        euler: tuple[float, float, float],
+    ):
+        camera = Camera(camera_name, " ".join(map(str, pos)), " ".join(map(str, euler)))
+        self.cameras.append(camera)
+        self.ee_link().append(camera)
+
     def initialize(self, env: MujocoEnv):
         self.controller.initialize(env)
+        for camera in self.cameras:
+            camera.initialize(env)
 
     def get_axis_value(self):
         return self.controller.get_axis_value()
