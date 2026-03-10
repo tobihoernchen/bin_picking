@@ -95,6 +95,23 @@ class MujocoEnv(XmlObject):
         self.d = data
         return model, data
 
+    def reset(self):
+        """Reset the Mujoco environment and all active components to initial state.
+
+        This only resets the data (positions, velocities, etc.) without reloading the XML model,
+        making it much faster than a full reinitialization.
+        """
+        if self.m is None or self.d is None:
+            # Initialize if not already done
+            self.get_mujoco()
+        else:
+            # Fast reset: only reset data, keep model
+            mujoco.mj_resetData(self.m, self.d)
+
+        # Reset all active components
+        for component in self.components_active_at_runtime:
+            component.reset()
+
     def step(self, m, d):
         for component in self.components_active_at_runtime:
             positions = component.get_link_positions()

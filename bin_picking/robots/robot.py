@@ -224,28 +224,13 @@ class PTPController:
             torch.tensor(axis_limits_rad[0], dtype=torch.float32, device=self.device),
             torch.tensor(axis_limits_rad[1], dtype=torch.float32, device=self.device),
         )
-        self.axis_position = torch.tensor(
-            initial_axis_position or [0.0] * self.nbr_of_joints,
-            dtype=torch.float32,
-            device=self.device,
-        )
-        self.link_position = self.forward_kinematics(self.axis_position.unsqueeze(0))
-        if self.nbr_of_joints != len(axis_speed_rad_per_sec[0]):
-            raise ValueError(
-                "Length of axis_limits_rad and axis_speed_rad_per_sec must match nbr_of_joints"
-            )
+        self.initial_axis_position = initial_axis_position
 
         self.axis_speed_rad_per_sec = (
             torch.tensor(axis_speed_rad_per_sec[0], dtype=torch.float32, device=self.device),
             torch.tensor(axis_speed_rad_per_sec[1], dtype=torch.float32, device=self.device),
         )
-
-        self.motion_actual_step = None
-        self.motion_total_steps = None
-        self.motion_link_positions = None
-        self.motion_axis_endpoint = None
-        self.motion_axis_positions = None
-        self.in_motion = False
+        self.reset()
 
     def forward_kinematics(
         self, axis_position: torch.Tensor
@@ -258,6 +243,21 @@ class PTPController:
 
     def initialize(self, env: MujocoEnv):
         self.env = env
+
+    def reset(self):
+        self.axis_position = torch.tensor(
+            self.initial_axis_position or [0.0] * self.nbr_of_joints,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.link_position = None
+
+        self.motion_actual_step = None
+        self.motion_total_steps = None
+        self.motion_link_positions = None
+        self.motion_axis_endpoint = None
+        self.motion_axis_positions = None
+        self.in_motion = False
 
     def move_to(
         self, position: list[float] | torch.Tensor, clipping: bool = False, speed: float = 1.0
@@ -317,8 +317,11 @@ class PTPController:
         self.in_motion = False
 
     def get_link_positions(self, offset: torch.Tensor, go_to_next=False):
-        if not self.in_motion:
-            return self.link_position
+        if not self.in_motion and self.link_position is None:
+            return {
+                k: (v[0][0] + offset, v[1][0])
+                for k, v in self.forward_kinematics(self.axis_position.unsqueeze(0)).items()
+            }
         self.motion_actual_step += 1 if go_to_next else 0
         if self.motion_actual_step >= self.motion_total_steps:
             self.axis_position = self.motion_axis_positions[-1]
@@ -345,6 +348,9 @@ class ActiveMujocoComponent(ABC):
     def initialize(self, env: MujocoEnv):
         raise NotImplementedError
 
+    def reset(self):
+        raise NotImplementedError
+
     def get_link_positions(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         """
         Should return a dictionary mapping link names to their current position and orientation (as a quaternion).
@@ -360,6 +366,7 @@ class Robot(ActiveMujocoComponent):
         geometry_name: str,
         device: str = "cpu",
         timestep: float = 0.01,
+        initial_axis_position: list[float] = None,
     ):
         self.chain = chain
         self.device = torch.device(device)
@@ -406,6 +413,7 @@ class Robot(ActiveMujocoComponent):
             self.chain,
             axis_limits_rad=limits,
             axis_speed_rad_per_sec=velocities,
+            initial_axis_position=initial_axis_position,
             device=device,
         )
 
@@ -414,6 +422,11 @@ class Robot(ActiveMujocoComponent):
             high=np.array(limits[1], dtype=np.float32),
             dtype=np.float32,
         )
+
+    def reset(self):
+        self.controller.reset()
+        # for camera in self.cameras:
+        #     camera.reset()
 
     def get_pos_quat(self, mat: torch.Tensor) -> tuple[list[float], list[float]]:
         pos, quat = mat_to_pos_quat(mat, self.device)
